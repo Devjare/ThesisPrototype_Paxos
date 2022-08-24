@@ -1,0 +1,5 @@
+To run Drain container individually use:
+
+```
+docker run --name log_parser -v data_source:/source/ -v  shared_volume:/logparser/data/drain_result log_parser:v1
+```

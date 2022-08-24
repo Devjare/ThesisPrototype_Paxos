@@ -1,0 +1,21 @@
+EventId,EventTemplate,Occurrences
+09a53393,Receiving block <*> src: <*> dest: <*>,23611
+3d91fa85,BLOCK* NameSystem.allocateBlock: <*> <*>,7940
+dc2c74b7,PacketResponder <*> for block <*> terminating,22224
+e3df2680,Received block <*> of size <*> from <*>,22225
+5d5de21c,BLOCK* NameSystem.addStoredBlock: blockMap updated: <*> is added to <*> size <*>,22287
+d6b7b743,Received block <*> src: <*> dest: <*> of size <*>,29
+73c2ec69,<*>Transmitted block <*> to <*>,25
+75627efd,"<*> Starting thread to transfer block <*> to <*>, <*>",4
+54e5f6b4,BLOCK* ask <*> to replicate <*> to datanode(s) <*> <*>,4
+626085d5,<*> Served block <*> to <*>,407
+728076ac,BLOCK* ask <*> to replicate <*> to datanode(s) <*>,22
+40651754,<*> Starting thread to transfer block <*> to <*>,22
+32777b38,Verification succeeded for <*>,1088
+8f3cb655,writeBlock <*> received exception java.net.SocketTimeoutException,1
+506b3c4b,PacketResponder <*> <*> Exception java.io.EOFException,1
+bcc910df,writeBlock <*> received exception java.io.IOException: Could not read from stream,62
+dba996ef,Deleting block <*> file <*>,22
+0567184d,Receiving empty packet for block <*>,24
+69bca6e5,Exception in receiveBlock for block <*> java.io.IOException: Connection reset by peer,1
+d013b7a3,writeBlock <*> received exception java.io.IOException: Connection reset by peer,1

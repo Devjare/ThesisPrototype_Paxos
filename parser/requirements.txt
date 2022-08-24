@@ -1,0 +1,4 @@
+Flask
+regex
+pandas
+numpy
