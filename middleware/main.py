@@ -8,7 +8,8 @@ import socket
 app = Flask(__name__)
     
 MY_ROLE = os.getenv("PAXOS_ROLE") # 'P' | 'A' | 'L' 
-REQ_ID = int(os.getenv("CURRENT_REQ_ID"))
+LP_REQ_ID = int(os.getenv("CURRENT_LP_REQ_ID"))
+AD_REQ_ID = int(os.getenv("CURRENT_AD_REQ_ID"))
 
 @app.route("/")
 def home():
@@ -61,9 +62,10 @@ def get_acceptors(connected):
 
     return acceptors
 
-@app.route("/promise")
-def promise():
+@app.route("/promise/<task>")
+def promise(task):
     # IF IM A PROPOSER, MY INTEREST IS TO SEND PROMISE REQUEST.
+    request_id = LP_REQ_ID if task == "LP" else AD_REQ_ID
     if MY_ROLE == "P":
         app.logger.info('PROPOSER Promise Request')
         # ONLY A PROPOSER HAS AN IP LIST DEFINED AS ENV VARIABLE.
@@ -80,10 +82,10 @@ def promise():
         for acceptor in acceptors:
             # process -> Which process to be done(Parser or AD), 
             # ip -> who is going to do that process.
-            newValue = os.getenv("VALUE_TO_PROMISE")
+            newValue = os.getenv(f"{task}_VALUE_TO_PROMISE")
 
             app.logger.info(f"PROPOSER Promise Request to acceptor with ip:port = {acceptor}")
-            url = f"http://{acceptor}/promise?newValue={newValue}&reqId={REQ_ID}" # Send a promise to all acceptors.
+            url = f"http://{acceptor}/promise/{task}?newValue={newValue}&reqId={request_id}" # Send a promise to all acceptors.
             app.logger.info(f"Making a request to: {url}")
             req = requests.get(url)
             app.logger.info('Request response: %s!', req.text)
@@ -99,7 +101,7 @@ def promise():
         ip = newValue.split("=")[1] # To be donde by which ip
         reqId = int(request.args.get("reqId")) # Request ID, accept only from the greater.
         
-        currentReqId = int(os.getenv("CURRENT_REQ_ID")) # ID of last promise to accept.
+        currentReqId = int(os.getenv(f"CURRENT_{task}_REQ_ID")) # ID of last promise to accept.
         if(reqId >= currentReqId):
             # Accept
             # SAVE NEW VALUE AS PROMISED TO ACCEPT LATER ON A ACCEPT REQUEST.
@@ -109,8 +111,9 @@ def promise():
         return { 'promised_ph': False }
     # if MY_ROLE == "L" theorically would neve enter this method
 
-@app.route("/accept")
-def accept():
+@app.route("/accept/<task>")
+def accept(task):
+    request_id = LP_REQ_ID if task == "LP" else AD_REQ_ID
     if MY_ROLE == "P":
         connected = os.getenv("IP_LIST").split(",")
         
@@ -120,10 +123,11 @@ def accept():
         majority = len(acceptors) / 2 + 1
         # acceptor -> ip:port
         
-        process_ip = os.getenv("VALUE_TO_ACCEPT")
+        process_ip = os.getenv(f"{task}_VALUE_TO_ACCEPT")
         # send acceptors nevalue to accept. 
         for acceptor in acceptors:
-            url = f"http://{acceptor}/accept?newValue={process_ip}&reqId={REQ_ID}"
+            url = f"http://{acceptor}/accept/{task}?newValue={process_ip}&reqId={request_id}"
+            app.logger.info(f"Requesting accept to {acceptor} with url: {url}")
             req = requests.get(url)
             response = req.json()
         
@@ -142,7 +146,7 @@ def accept():
         ip = newValue.split("=")[1] # To be donde by which ip
         reqId = int(request.args.get("reqId")) # Request ID, accept only from the greater.
         
-        currentReqId = int(os.getenv("CURRENT_REQ_ID")) # ID of last promise to accept.
+        currentReqId = int(os.getenv(f"CURRENT_{task}_REQ_ID")) # ID of last promise to accept.
         # If current Request Id is grearer than the new request, then not accept.
         # ADN if promised IP is equal to the newIP. Can be accepted.
         if(reqId >= currentReqId and os.environ[f"PROMISE_{process}_IP"] == str(ip)):
@@ -157,8 +161,9 @@ def accept():
     return "<h5>Accept phase</h5>"
         
 
-@app.route("/commit")
-def commit():
+@app.route("/commit/<task>")
+def commit(task):
+    request_id = LP_REQ_ID if task == "LP" else AD_REQ_ID
     if MY_ROLE == "P":
         app.logger.info('PROPOSER Promise Request')
         connected = os.getenv("IP_LIST").split(",")
@@ -166,10 +171,10 @@ def commit():
         for c in connected:
             # process -> Which process to be done(Parser or AD), 
             # ip -> who is going to do that process.
-            newValue = os.getenv("VALUE_TO_COMMIT")
+            newValue = os.getenv(f"{task}_VALUE_TO_COMMIT")
 
             app.logger.info(f"PROPOSER Commit Request to all with ip:port = {c}")
-            url = f"http://{c}/commit?newValue={newValue}&reqId={REQ_ID}" 
+            url = f"http://{c}/commit/{task}?newValue={newValue}&reqId={request_id}" 
             app.logger.info(f"Making a request to: {url}")
             req = requests.get(url)
             app.logger.info('Request response: %s!', req.text)
@@ -196,89 +201,97 @@ def commit():
     return { "state": "failed" }
 
 
-@app.route("/start_paxos")
-def start_paxos():
-    global REQ_ID, MY_ROLE
+@app.route("/start_paxos/<task>")
+def start_paxos(task):
+    global LP_REQ_ID, AD_REQ_ID, MY_ROLE
     # PHASE 1: PROMISE
     # SEARCH WHICH VALUE TO PROPOSE.
     # In order to do that, launch a request to every IP on table for a wether they can
     # or cannot do Parsing or Anomaly detection.
     # If more than one return a positive answer, choose randomly and pass to promise()
     # as the new proposed value.
+    
+    app.logger.info(f"Starting paxos to decide on task {task}")
     paxos_status = ''
     consensus_achieved = False
+    
+    request_id = LP_REQ_ID if task == "LP" else AD_REQ_ID
+    activity = "parse" if task == "LP" else "detect"
     if(MY_ROLE == "P"):
         connected = os.getenv("IP_LIST").split(",")
-        
+         
         # PAXOS FOR LOG PARSERS
-        can_parse_list = [] # list of middleware that have access to parsers net.
+        can_do_task_list = [] # list of middleware that have access to parsers net.
         for c in connected:
-            url = f"http://{c}/can_parse"
-            app.logger.info(f"Requesting can_parse to {url}.")
+            url = f"http://{c}/can_{activity}"
+            app.logger.info(f"Requesting can_{activity} to {url}.")
             req = requests.get(url)
             app.logger.info(f"Request: {req}.")
             response = req.json()
             app.logger.info(f"Response from {url}: {response}")
             
-            chosen_parser = ""
-            if(response['canParse'] == True):
+            chosen_mw = "" # Middleware ip which has access to <activity>
+            if(response[f"can{activity.title()}"] == True):
                 # list of ips that are available for parsing
-                parsers_list = response['reachableIps'] 
+                actors_list = response['reachableIps'] # list of possible ips which can do <activity>
                 # middleware c, has acces to parsers_list ips.
                 # can_parse_list.append({ c: parsers_list}) 
-                can_parse_list.append(c) 
+                can_do_task_list.append(c) 
         
-        # Chosen middleware will be value to controll access to parsers.
-        chosen_middleware = random.choice(can_parse_list)
+        # Chosen middleware will be value to control access to parsers.
+        chosen_mw = random.choice(can_do_task_list)
 
         # Send promise
         # Only SEND if ROLE = PROPOSER
-        # AnomalyDetection(AD) is going to be done by IP
-        value = f"LP={chosen_middleware}"
-        os.environ["VALUE_TO_PROMISE"] = value
-        promiseResponse = promise() 
+        value = f"{task}={chosen_mw}"
+        os.environ[f"{task}_VALUE_TO_PROMISE"] = value
+        promiseResponse = promise(task) 
         app.logger.info(f"PROMISE RESPONSE: {promiseResponse}")
 
         # PHASE 2: ACCEPTION
         # Majority Promised, then send accept.
-        os.environ["VALUE_TO_ACCEPT"] = value
-        acceptResponse = accept()
+        os.environ[f"{task}_VALUE_TO_ACCEPT"] = value
+        acceptResponse = accept(task)
         if('majorityAccepted' not in acceptResponse):
-            app.logger.error(f"Majority of acceptions not achieved on request {REQ_ID}!")
+            app.logger.error(f"Majority of acceptions not achieved on request {request_id}!")
             paxos_status = 'Failed to achieve consensus because of majority not completed!'
             consensus_achieved = False
         else: 
-            app.logger.info(f"Majority of acceptions achieved on request {REQ_ID}! Proceeding to commit {value}")
+            app.logger.info(f"Majority of acceptions achieved on request {request_id}! Proceeding to commit {value}")
             consensus_achieved = True
             paxos_status = 'Successfully finished!'
             if(acceptResponse['majorityAccepted'] == True):
                 # If majority accepted, commit
                 # PHASE 3: COMMIT.
                 # Send commit.
-                os.environ["VALUE_TO_COMMIT"] = value
-                commit()
+                os.environ[f"{task}_VALUE_TO_COMMIT"] = value
+                commit(task)
                 
                 # MAKE PROPOSER KNOWN OF THE CURRENT VALUE.
                 process = value.split("=")[0] # Which process
                 ip = value.split("=")[1] # To be donde by which ip
-                envname = f'CURRENT_{process}_IP'
+                # TODO: change {process} for {task}, reduce process variable aquisition
+                envname = f'CURRENT_{process}_IP' 
                 os.environ[envname] = ip
                 app.logger.info(f"Consensus for {process} determined to be done by {ip}, set on env: {envname}, for role: {MY_ROLE}")
         
         # Update req id for new future requests.
-        REQ_ID += 1
-
-        
-        # PAXOS FOR ANOMALY DETECTORS
+        if(task == "LP"):
+            LP_REQ_ID += 1
+        if(task == "AD"):
+            AD_REQ_ID += 1
+ 
     else:
-        # request proposer to start paxos.
+        # request proposer to start paxos for parsing.
         proposer = os.getenv("PROPOSER_IP")
-        url = f"http://{proposer}:60001/start_paxos"
-        app.logger.info(f"Requesting {proposer}:60001 to /start_paxos.")
+        # paxos_endpoint = "parser" if task == "LP" else "detector"
+        # in case request to start_paxos/ for {task} sent to an acceptor or learner
+        # such would redirect the request to the PROPOSER_IP on the same endpoint(/start_paxos/{task}
+        url = f"http://{proposer}:60001/start_paxos/{task}"
+        app.logger.info(f"Requesting {proposer}:60001 to /start_paxos/{task}.")
         req = requests.get(url)
 
-        return req.response.text # Return text in order to prevent json decoding errors.
-        
+        return req.response.text # Return text in order to prevent json decoding errors. 
 
     return { 'paxos_status': paxos_status,
             'consensus_achieved': consensus_achieved }
@@ -406,15 +419,13 @@ def can_detect():
 def request_parsing(payload):
     # REQUEST PARSING TO PARSER CONTAINERS
     LP_IP_RANGE = os.getenv("LP_IP_RANGE").split("-") # IP RANGE FRO LOG PARSERS(LP)
-    LP_PORT_RANGE = os.getenv("LP_PORT_RANGE").split("-") # PORT RANGE FRO LOG PARSERS(LP)
     
     ip = get_ip(LP_IP_RANGE[0], LP_IP_RANGE[1])
     # Static port, ip changes.
-    port = 40001 # get_port(LP_PORT_RANGE[0], LP_PORT_RANGE[1]) # Randomly choose port.
+    port = 40001 # static port
     url = f"http://{ip}:{port}/parse"
-    app.logger.info(f"parse(): Requesting to: {url}")
+    app.logger.info(f"detect(): Requesting to: {url}")
     
-    # IP MAY BE NOT NEEDED
     headers = {'Content-Type': 'application/json'}
     # req = requests.post(url)
     # payload = request.json
@@ -425,11 +436,32 @@ def request_parsing(payload):
 
     return result
 
+def request_detection(payload):
+    # REQUEST PARSING TO PARSER CONTAINERS
+    AD_IP_RANGE = os.getenv("AD_IP_RANGE").split("-") # IP RANGE FRO LOG PARSERS(LP)
+    
+    ip = get_ip(AD_IP_RANGE[0], AD_IP_RANGE[1])
+    # Static port, ip changes.
+    port = 50001 # get_port(LP_PORT_RANGE[0], LP_PORT_RANGE[1]) # Randomly choose port.
+    url = f"http://{ip}:{port}/detect"
+    app.logger.info(f"parse(): Requesting to: {url}")
+    
+    # IP MAY BE NOT NEEDED
+    headers = {'Content-Type': 'application/json'}
+    # req = requests.post(url)
+    # payload = request.json
+    r = requests.post(url, data=json.dumps(payload), headers=headers)
+
+    result = r.json()
+    app.logger.debug(f"Detection Results: {result}")
+
+    return result
+
 @app.route("/parse", methods=["POST"])
 def parse():
     global MY_ROLE
     if len(os.getenv("CURRENT_LP_IP")) <= 0:
-        start_paxos()
+        start_paxos("LP")
         app.logger.info(f"CONSENSUS FINISHED, CURRENT_LP_IP = {os.getenv('CURRENT_LP_IP')}")
 
     
@@ -469,33 +501,49 @@ def parse():
 
 @app.route("/detect", methods=["POST"])
 def detect_anomalies():
-    print("ENV: ", os.getenv("AD_IP_RANGE"))
-    print("ENV: ", os.getenv("AD_PORT_RANGE"))
-    AD_IP_RANGE = os.getenv("AD_IP_RANGE").split("-") # IP RANGE FRO LOG PARSERS(LP)
-    ad_port = 50001 # 50001 - 50006 for AD on host exposition. Inside docker env 50001 is accesible.
-    # PORT WILL BE STATIC
-    # AD_PORT_RANGE = os.getenv("AD_PORT_RANGE").split("-") # PORT RANGE FRO LOG PARSERS(LP)
-    
-    # ip = get_ip(LP_IP_RANGE[0], LP_IP_RANGE[1])
-    # IP MAY BE NOT NEEDED, USING STATIC(LOCAL HOST IP)
-    ip = os.getenv("IPLOCAL")
-    port = get_port(AD_PORT_RANGE[0], AD_PORT_RANGE[1])
-    url = f"http://{ip}:{port}/detect_anomalies"
-    print("Requesting to: ", url)
-    
-    headers = {'Content-Type': 'application/json'}
-    # req = requests.post(url)
-    payload = request.json
-    r = requests.post(url, data=json.dumps(payload), headers=headers)
+    # PAXOS FOR ANOMALY DETECTION.
+    global MY_ROLE
+    if len(os.getenv("CURRENT_AD_IP")) <= 0:
+        start_paxos("AD") # paxos for AD
+        app.logger.info(f"CONSENSUS FINISHED, CURRENT_AD_IP = {os.getenv('CURRENT_AD_IP')}")
 
-    result = r.text
-    print("Results: ", result)
+    
+    ip = os.getenv("CURRENT_AD_IP") # middleware in charge of parsing.
+    myip = socket.gethostbyname(socket.gethostname())
+    
+    app.logger.info(f"CURRENT_AD_IP: {ip}")
+    app.logger.info(f"I am {myip} ROLE: {MY_ROLE}")
+    detection_result = {}
+    # compare only the ip part, exclude port.
+    if(ip.split(":")[0] == myip):
+        app.logger.info(f"Requesting detection from {ip}.")
+        # CAN REQUEST PARSING.
+        payload = request.json
+        detection_result = request_detection(payload)     
+        return detection_result
+    else:
+        # MAKE REQUEST TO MW WHO CAN REACH DETECTOR(ip)
+        url = f"http://{ip}/detect"
+        app.logger.info(f"detect(): Requesting detection to MW: {url}")
+        
+        # IP MAY BE NOT NEEDED
+        headers = {'Content-Type': 'application/json'}
+        # payload from original request will be resend to a new middleware
+        # capable of reaching parsers.
+        payload = request.json
+        app.logger.info(f"PAYLOAD: {payload}")
+        r = requests.post(url, data=json.dumps(payload), headers=headers)
+        app.logger.info(f"\tRequest detect() response: {r}")
+        detection_result = r.text
+        app.logger.info(f"\tRequest response: {detection_result}")
 
-    return result
+    
+    return detection_result
 
 if __name__ == "__main__":
     # INITIALIZE SOME ENV VARIABLES.
     os.environ["CURRENT_LP_IP"] = ""
+    os.environ["CURRENT_AD_IP"] = ""
 
     PORT=os.getenv("PORT")
 
