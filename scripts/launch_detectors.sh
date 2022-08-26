@@ -28,7 +28,7 @@ export BASE_IMAGE=localhost:5000/djandr/anomaly_detector:latest
 export DEFAULT_PORT=50001
 export SHARED_VOLUME=shared_volume
 export DOCKER_VOLUME_MAP=/data/ # Where on the container will the SHARED_VOLUME will map.
-for (( i=2; i<=6; i++))
+for (( i=1; i<6; i++))
 do
 	export PORT=5000$i
 	echo "Launching container ad$i on port $PORT"

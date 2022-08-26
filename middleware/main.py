@@ -115,6 +115,7 @@ def promise(task):
 def accept(task):
     request_id = LP_REQ_ID if task == "LP" else AD_REQ_ID
     if MY_ROLE == "P":
+        app.logger.info('======================== PROPOSER ACCEPT Request =========================')
         connected = os.getenv("IP_LIST").split(",")
         
         # Get acceptors list.
@@ -165,15 +166,17 @@ def accept(task):
 def commit(task):
     request_id = LP_REQ_ID if task == "LP" else AD_REQ_ID
     if MY_ROLE == "P":
-        app.logger.info('PROPOSER Promise Request')
+        app.logger.info('================================= PROPOSER COMMIT Request ========================')
         connected = os.getenv("IP_LIST").split(",")
         # on commit phase, 
+        majorityAchieved = False
         for c in connected:
             # process -> Which process to be done(Parser or AD), 
             # ip -> who is going to do that process.
             newValue = os.getenv(f"{task}_VALUE_TO_COMMIT")
+            majority = os.getenv(f"{task}_MAJORITY_ACCEPTED")
 
-            app.logger.info(f"PROPOSER Commit Request to all with ip:port = {c}")
+            app.logger.info(f"PROPOSER Commit Request to all with ip:port = {c}, value {newValue}")
             url = f"http://{c}/commit/{task}?newValue={newValue}&reqId={request_id}" 
             app.logger.info(f"Making a request to: {url}")
             req = requests.get(url)
@@ -181,11 +184,17 @@ def commit(task):
             response = req.json()
 
             if response['state'] == 'success':
-                app.logger.info(f"Succesfully commited value: {newValue} on majority of nodes.")
-                return { 'state': 'success' }
+                majorityAchieved = True
             else:
-                app.logger.error(f"Failed to commit value: {process_ip} on majority of nodes.")
-                return { 'state': 'failed' }
+                majorityAchieved = False
+
+        if majorityAchieved == True:
+            app.logger.info(f"Succesfully commited value: {newValue} on majority of nodes.")
+            return { 'state': 'success' }
+        else:
+            app.logger.error(f"Failed to commit value: {process_ip} on majority of nodes.")
+            return { 'state': 'failed' }
+            
     else:
         # Any other role(Acceptor or learner) now will know the value
         app.logger.info("Commit request obtained!")
@@ -195,6 +204,7 @@ def commit(task):
 
         # Current process ip will tell who is going to realizer 'process', which ip.
         os.environ[f'CURRENT_{process}_IP'] = ip
+        app.logger.info(f"SET CURRENT_{process}_IP to = {ip}")
         
         return { 'state': 'success' }
  
@@ -265,6 +275,7 @@ def start_paxos(task):
                 # PHASE 3: COMMIT.
                 # Send commit.
                 os.environ[f"{task}_VALUE_TO_COMMIT"] = value
+                os.environ[f"{task}_MAJORITY_ACCEPTED"] = str(acceptResponse['majority'])
                 commit(task)
                 
                 # MAKE PROPOSER KNOWN OF THE CURRENT VALUE.
@@ -274,6 +285,8 @@ def start_paxos(task):
                 envname = f'CURRENT_{process}_IP' 
                 os.environ[envname] = ip
                 app.logger.info(f"Consensus for {process} determined to be done by {ip}, set on env: {envname}, for role: {MY_ROLE}")
+                v = os.getenv(f"CURRENT_{process}_IP")
+                app.logger.info(f"os.getenv('CURRENT_{process}_IP') = {v}")
         
         # Update req id for new future requests.
         if(task == "LP"):
@@ -291,7 +304,7 @@ def start_paxos(task):
         app.logger.info(f"Requesting {proposer}:60001 to /start_paxos/{task}.")
         req = requests.get(url)
 
-        return req.response.text # Return text in order to prevent json decoding errors. 
+        return req.text # Return text in order to prevent json decoding errors. 
 
     return { 'paxos_status': paxos_status,
             'consensus_achieved': consensus_achieved }
@@ -394,12 +407,12 @@ def can_detect():
     
     # network
     subdomain = start_sections[:3]
-    reachable_ips = 0
+    reachable_ips = []
     for i in range(sipln, eipln+1):
         ip_array = subdomain.copy()
         ip_array.append(str(i)) # for each ip last number in range, append i.
         selected_ip = '.'.join(ip_array)
-        app.logger.info("Selected ip: ", selected_ip)
+        app.logger.info(f"Selected ip: {selected_ip}")
         
         # Make a ping to every ip in order to see if the middleware has access to any of the
         # containers capable of parsing.
@@ -424,7 +437,7 @@ def request_parsing(payload):
     # Static port, ip changes.
     port = 40001 # static port
     url = f"http://{ip}:{port}/parse"
-    app.logger.info(f"detect(): Requesting to: {url}")
+    app.logger.info(f"parse(): Requesting to: {url}")
     
     headers = {'Content-Type': 'application/json'}
     # req = requests.post(url)
@@ -444,7 +457,7 @@ def request_detection(payload):
     # Static port, ip changes.
     port = 50001 # get_port(LP_PORT_RANGE[0], LP_PORT_RANGE[1]) # Randomly choose port.
     url = f"http://{ip}:{port}/detect"
-    app.logger.info(f"parse(): Requesting to: {url}")
+    app.logger.info(f"detection(): Requesting to: {url}")
     
     # IP MAY BE NOT NEEDED
     headers = {'Content-Type': 'application/json'}
@@ -452,7 +465,7 @@ def request_detection(payload):
     # payload = request.json
     r = requests.post(url, data=json.dumps(payload), headers=headers)
 
-    result = r.json()
+    result = r.text
     app.logger.debug(f"Detection Results: {result}")
 
     return result
@@ -460,14 +473,23 @@ def request_detection(payload):
 @app.route("/parse", methods=["POST"])
 def parse():
     global MY_ROLE
-    if len(os.getenv("CURRENT_LP_IP")) <= 0:
+    current_lp_ip = os.getenv("CURRENT_LP_IP")
+    if len(current_lp_ip) <= 0:
+        start_paxos("LP")
+        app.logger.info(f"CONSENSUS FINISHED, CURRENT_LP_IP = {os.getenv('CURRENT_LP_IP')}")
+    elif is_ip_available(current_lp_ip.split(":")[0]) == False:
         start_paxos("LP")
         app.logger.info(f"CONSENSUS FINISHED, CURRENT_LP_IP = {os.getenv('CURRENT_LP_IP')}")
 
     
     # ip = get_ip(LP_IP_RANGE[0], LP_IP_RANGE[1])
     ip = os.getenv("CURRENT_LP_IP") # middleware in charge of parsing.
-    myip = socket.gethostbyname(socket.gethostname())
+    myips = socket.gethostbyname_ex(socket.gethostname())[2]
+    myip = ''
+    for i in range(len(myips)):
+        if '147' in myips[i]:
+            # myip = socket.gethostbyname(socket.gethostname())
+            myip = myips[i]
     
     app.logger.info(f"CURRENT_LP_IP: {ip}")
     app.logger.info(f"I am {myip} ROLE: {MY_ROLE}")
@@ -499,17 +521,32 @@ def parse():
     
     return parsing_result
 
+def is_ip_available(ip):
+    return make_ping(ip)
+
 @app.route("/detect", methods=["POST"])
 def detect_anomalies():
     # PAXOS FOR ANOMALY DETECTION.
     global MY_ROLE
-    if len(os.getenv("CURRENT_AD_IP")) <= 0:
+    current_ad_ip = os.getenv("CURRENT_AD_IP")
+    if len(current_ad_ip) <= 0:
         start_paxos("AD") # paxos for AD
         app.logger.info(f"CONSENSUS FINISHED, CURRENT_AD_IP = {os.getenv('CURRENT_AD_IP')}")
-
+    elif is_ip_available(current_ad_ip.split(":")[0]) == False:
+        start_paxos("AD") # paxos for AD
+        app.logger.info(f"CONSENSUS FINISHED, CURRENT_AD_IP = {os.getenv('CURRENT_AD_IP')}")
     
     ip = os.getenv("CURRENT_AD_IP") # middleware in charge of parsing.
-    myip = socket.gethostbyname(socket.gethostname())
+    # myip = socket.gethostbyname(socket.gethostname())
+    myips = socket.gethostbyname_ex(socket.gethostname())
+    app.logger.info(f"Contaier ips: {myips}")
+    myips = myips[2]
+    app.logger.info(f"Contaier ips: {myips}")
+    myip = ''
+    for i in range(len(myips)):
+        if '147' in myips[i]:
+            # myip = socket.gethostbyname(socket.gethostname())
+            myip = myips[i]
     
     app.logger.info(f"CURRENT_AD_IP: {ip}")
     app.logger.info(f"I am {myip} ROLE: {MY_ROLE}")

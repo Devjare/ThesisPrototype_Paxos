@@ -33,12 +33,12 @@ export DOCKER_VOLUME_MAP=/data/ # Where on the container will the SHARED_VOLUME 
 #	1. UNSTRUCTURED LOGS DATA SOURCE(This should not be needed, extractor should allocate on the same volume the unstructured logs and the anomaly labels file)
 #	2. OUTPUT VOLUME FOR STRUCTURED LOGS.
 
-for (( i=2; i<=6; i++))
+for (( i=1; i<6; i++))
 do
 	export PORT=4000$i
 	echo "Launching container lp$i on port $PORT"
 	# docker container run --name ad$i -l AD_CID=AD$i -p $PORT:$DEFAULT_PORT -v $SHARED_VOLUME:$DOCKER_VOLUME_MAP --net ad_net -d -e PAXOS_ROLE=1 $BASE_IMAGE
-	docker container run --name lp$i -l LP_CID=LP$i -p $PORT:$DEFAULT_PORT  -v data_source:/source/ -v  shared_volume:/logparser/data/drain_result --net $NET_NAME -d -e PAXOS_ROLE=1 $BASE_IMAGE
+	docker container run --name lp$i -l LP_CID=LP$i -p $PORT:$DEFAULT_PORT  -v  shared_volume:/logparser/data/ --net $NET_NAME -d -e PAXOS_ROLE=1 $BASE_IMAGE
 
 done
 

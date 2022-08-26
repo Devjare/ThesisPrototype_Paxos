@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 from flask import Flask, request
 from drain import Drain
+import time
 import os
 
 app = Flask(__name__)
@@ -11,28 +12,27 @@ def home():
 
 @app.route("/parse", methods=["POST"])
 def parse():
-    # Get parameters.
     args = request.json
 
     input_dir = args['inputDir']
-    # output_dir = args['putDir'] Outputdir will be the same always(shared volume).
-    output_dir = './data/drain_result/' # The output directory of parsing results
+    output_dir = './data/parse_result/' # The output directory of parsing results
     logfile_name = args['logFileName']
     log_format = args['logFormat']
     rex = args['regex'] # List of regex., optional.
 
     depth = args['depth']
     st = args['st']
-    
-    # for i in range(len(rex)):
-    #     # rex[i] = repr(rex[i])
-    #     rex[i] = rex[i].replace('\\\\', '\\')
-    
-    print("Recieved regex: ", rex)
+   
+    start_time = time.time()
     parser = Drain.LogParser(log_format, indir=input_dir, outdir=output_dir,  depth=depth, st=st, rex=rex)
     parser.parse(logfile_name)
     
+    end_time = time.time()
+    
+    total_time_taken = end_time - start_time
+    
     return { "status": "Successfully parsed!",
+             "timeTaken": total_time_taken,
              "message": "Stored structured logs on default storage."
              }
 
