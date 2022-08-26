@@ -50,5 +50,12 @@ docker network connect ad_net mw5
 # Start contaienr
 docker container start mw5
 
+echo "Launching ACCEPTOR CONTAINER on PORT 60006"
+docker container create --name mw6 -l MW_CID=MW6 -p 60007:$DEFAULT_PORT --net $NET_NAME --env-file  ./scripts/acceptor.env $BASE_IMAGE
+# After created, connect to second network
+docker network connect ad_net mw6
+# Start contaienr
+docker container start mw6
+
 echo "Containers launched: "
 docker container ps --filter="label=MW_CID" --format="table {{.Names}} \t\t {{.Status}} \t\t {{.Ports}}"

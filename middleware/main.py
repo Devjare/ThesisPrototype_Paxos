@@ -51,14 +51,17 @@ def get_acceptors(connected):
     for ip in connected:
         url = f"http://{ip}/my_role"
         app.logger.info(f"Making request to: {url}")
-        req = requests.get(url)
-        response = req.json()
+        try:
+            req = requests.get(url)
+            response = req.json()
     
-        if(response):
-            app.logger.info(f"\tRequest response: {response}")
-            role = response['my_role'] 
-            if(role == 'A'):
-                acceptors.append(ip)
+            if(response):
+                app.logger.info(f"\tRequest response: {response}")
+                role = response['my_role'] 
+                if(role == 'A'):
+                    acceptors.append(ip)
+        except:
+            app.logger.error(f"Making request to: {url} FAILED: NOT AVAILABLE!")
 
     return acceptors
 
@@ -179,9 +182,14 @@ def commit(task):
             app.logger.info(f"PROPOSER Commit Request to all with ip:port = {c}, value {newValue}")
             url = f"http://{c}/commit/{task}?newValue={newValue}&reqId={request_id}" 
             app.logger.info(f"Making a request to: {url}")
-            req = requests.get(url)
-            app.logger.info('Request response: %s!', req.text)
-            response = req.json()
+            response = { 'state': 'failed' }
+            try:
+                req = requests.get(url)
+                app.logger.info('Request response: %s!', req.text)
+                response = req.json()
+            except:
+                response = { 'state': 'failed' }
+                app.logger.info(f"Request to {url} not achievd. Url not reachable.")
 
             if response['state'] == 'success':
                 majorityAchieved = True
@@ -234,19 +242,24 @@ def start_paxos(task):
         can_do_task_list = [] # list of middleware that have access to parsers net.
         for c in connected:
             url = f"http://{c}/can_{activity}"
-            app.logger.info(f"Requesting can_{activity} to {url}.")
-            req = requests.get(url)
-            app.logger.info(f"Request: {req}.")
-            response = req.json()
-            app.logger.info(f"Response from {url}: {response}")
+            c_ip = c.split(":")[0]
+            if is_ip_available(c_ip) == True:
+                app.logger.info(f"Requesting can_{activity} to {url}.")
+                req = requests.get(url)
+                app.logger.info(f"Request: {req}.")
+                response = req.json()
+                app.logger.info(f"Response from {url}: {response}")
+                
+                chosen_mw = "" # Middleware ip which has access to <activity>
+                if(response[f"can{activity.title()}"] == True):
+                    # list of ips that are available for parsing
+                    actors_list = response['reachableIps'] # list of possible ips which can do <activity>
+                    # middleware c, has acces to parsers_list ips.
+                    # can_parse_list.append({ c: parsers_list}) 
+                    can_do_task_list.append(c) 
+            else:
+                app.logger.info(f"{url} NOT AVAILABLE, SKIPPING...")
             
-            chosen_mw = "" # Middleware ip which has access to <activity>
-            if(response[f"can{activity.title()}"] == True):
-                # list of ips that are available for parsing
-                actors_list = response['reachableIps'] # list of possible ips which can do <activity>
-                # middleware c, has acces to parsers_list ips.
-                # can_parse_list.append({ c: parsers_list}) 
-                can_do_task_list.append(c) 
         
         # Chosen middleware will be value to control access to parsers.
         chosen_mw = random.choice(can_do_task_list)
