@@ -15,6 +15,16 @@ AD_REQ_ID = int(os.getenv("CURRENT_AD_REQ_ID"))
 def home():
     return "<h5>Middleware Home!</h5>"
 
+@app.route("/get_data")
+def get_data():
+    # Method to return current req id, and selected value.
+    return { 
+            "current_lp_req_id": os.getenv("CURRENT_LP_REQ_ID"),
+            "current_ad_req_id": os.getenv("CURRENT_AD_REQ_ID"),
+            "current_lp_ip": os.getenv("CURRENT_LP_IP"),
+            "current_ad_ip": os.getenv("CURRENT_AD_IP")
+            }
+
 def get_ip(start, end):
     start_sections = start.split(".")
     start_ip_last_number = int(start_sections[-1])
@@ -168,6 +178,8 @@ def accept(task):
 @app.route("/commit/<task>")
 def commit(task):
     request_id = LP_REQ_ID if task == "LP" else AD_REQ_ID
+    newValue = os.getenv(f"{task}_VALUE_TO_COMMIT")
+    majority = os.getenv(f"{task}_MAJORITY_ACCEPTED")
     if MY_ROLE == "P":
         app.logger.info('================================= PROPOSER COMMIT Request ========================')
         connected = os.getenv("IP_LIST").split(",")
@@ -176,8 +188,6 @@ def commit(task):
         for c in connected:
             # process -> Which process to be done(Parser or AD), 
             # ip -> who is going to do that process.
-            newValue = os.getenv(f"{task}_VALUE_TO_COMMIT")
-            majority = os.getenv(f"{task}_MAJORITY_ACCEPTED")
 
             app.logger.info(f"PROPOSER Commit Request to all with ip:port = {c}, value {newValue}")
             url = f"http://{c}/commit/{task}?newValue={newValue}&reqId={request_id}" 
@@ -200,7 +210,7 @@ def commit(task):
             app.logger.info(f"Succesfully commited value: {newValue} on majority of nodes.")
             return { 'state': 'success' }
         else:
-            app.logger.error(f"Failed to commit value: {process_ip} on majority of nodes.")
+            app.logger.error(f"Failed to commit value: {newValue} on majority of nodes.")
             return { 'state': 'failed' }
             
     else:
@@ -303,9 +313,13 @@ def start_paxos(task):
         
         # Update req id for new future requests.
         if(task == "LP"):
-            LP_REQ_ID += 1
+            clprid = int(os.getenv("CURRENT_LP_REQ_ID"))
+            clprid += 1 # current_lp_req_id
+            os.environ['CURRENT_LP_REQ_ID'] = str(clprid)
         if(task == "AD"):
-            AD_REQ_ID += 1
+            cadrid = int(os.getenv("CURRENT_AD_REQ_ID"))
+            cadrid += 1 # current_ad_req_id
+            os.environ['CURRENT_AD_REQ_ID'] = str(cadrid)
  
     else:
         # request proposer to start paxos for parsing.
