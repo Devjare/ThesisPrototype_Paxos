@@ -1,4 +1,2 @@
-- Make request asyncronus, maybe use broadcast.
-- Set a time limit to prevent waiting for too long.
 - Add parametrization.
 - Structure your ideas, make clear everything you think of.

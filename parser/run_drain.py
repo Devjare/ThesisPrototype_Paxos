@@ -6,7 +6,7 @@ import os
 
 app = Flask(__name__)
 
-@app.route("/home")
+@app.route("/")
 def home():
     return "<h5>Home!</h5>"
 

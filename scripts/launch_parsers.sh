@@ -22,6 +22,9 @@ else
 	docker network create $NET_NAME --label "LP_NET=LOG_PARSING_NETWORK"  --subnet=$SUB_NET --ip-range=$IP_RANGE
 fi
 
+# PREBUILD MIDDLEWARE IMAGE.
+./parser/buildimage.sh
+
 export BASE_IMAGE=localhost:5000/djandr/log_parser:latest
 # Launch all containers
 # Connect all to anomaly detection network(ad_net)

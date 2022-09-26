@@ -8,7 +8,7 @@ import time
 
 app = Flask(__name__)
 
-@app.route("/home")
+@app.route("/")
 def home():
     return "<h5>Home!</h5>"
 
@@ -34,7 +34,10 @@ def detect_anomalies():
     x_train = feature_extractor.fit_transform(x_train, term_weighting=term_weighting, 
                                               normalization=normalization)
     x_test = feature_extractor.transform(x_test)
-
+    
+    print("X_TRAIN: ", x_train)
+    print("X_TEST: ", x_test)
+    
     model = PCA()
     model.fit(x_train)
     precision, recall, f1 = model.evaluate(x_train, y_train)
@@ -51,5 +54,5 @@ def detect_anomalies():
     
 
 if __name__ == "__main__":
-    PORT = os.getenv("PORT")
-    app.run(debug=True, host="0.0.0.0", port=PORT)
+    # PORT = os.getenv("PORT")
+    app.run(debug=True, host="0.0.0.0", port=1765)

@@ -1,4 +1,4 @@
-./scripts/stop_middleware_containers.sh
+./scripts/stop_middlewares.sh
 
 ./scripts/launch_middlewares.sh
 

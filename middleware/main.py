@@ -3,6 +3,7 @@ import json
 import os
 import random
 import requests
+import subprocess
 import socket
 
 app = Flask(__name__)
@@ -220,6 +221,9 @@ def commit(task):
         process = newValue.split("=")[0] # Which process
         ip = newValue.split("=")[1] # To be donde by which ip
 
+        reqid = request.args.get("reqId")
+        os.environ[f'CURRENT_{process}_REQ_ID'] = reqid
+
         # Current process ip will tell who is going to realizer 'process', which ip.
         os.environ[f'CURRENT_{process}_IP'] = ip
         app.logger.info(f"SET CURRENT_{process}_IP to = {ip}")
@@ -248,12 +252,11 @@ def start_paxos(task):
     if(MY_ROLE == "P"):
         connected = os.getenv("IP_LIST").split(",")
          
-        # PAXOS FOR LOG PARSERS
         can_do_task_list = [] # list of middleware that have access to parsers net.
         for c in connected:
             url = f"http://{c}/can_{activity}"
             c_ip = c.split(":")[0]
-            if is_ip_available(c_ip) == True:
+            if is_reachable(c_ip, port=60001) == True:
                 app.logger.info(f"Requesting can_{activity} to {url}.")
                 req = requests.get(url)
                 app.logger.info(f"Request: {req}.")
@@ -272,8 +275,14 @@ def start_paxos(task):
             
         
         # Chosen middleware will be value to control access to parsers.
+        if(len(can_do_task_list) == 0):
+            app.logger.error(f"There are no available nodes to do {activity}!")
+            paxos_status = 'Failed to achieve consensus because no nodes available to do task!'
+            return { 'paxos_status': paxos_status,
+                    'consensus_achieved': consensus_achieved }
+       
         chosen_mw = random.choice(can_do_task_list)
-
+        
         # Send promise
         # Only SEND if ROLE = PROPOSER
         value = f"{task}={chosen_mw}"
@@ -372,8 +381,25 @@ def process_logs():
     return "Finished processing logs."
 
 
+def multi_ping(iplist):
+    app.logger.info(f"Starting multiping to iplist: {iplist}")
+    command = "fping -t500" + iplist
+    response = subprocess.run(command.split(" "), capture_output=True)
+    status = str(response.stdout.decode())
+    
+    splitted_response = status.split("\n")
+    
+    ips_status = {}
+    for i in range(len(splitted_response) - 1):
+        sr = splitted_response[i]
+        ip = sr.split(" ")[0]
+        stat = sr.split(" ")[2]
+        ips_status[ip] = stat
+
+    return ips_status
+
 def make_ping(ip):
-    response = os.system("ping -c 1 " + ip)
+    response = os.system("fping -t500 " + ip)
     #and then check the response...
     reachable = False
     if response == 0:
@@ -398,20 +424,37 @@ def can_parse():
     # network
     subdomain = start_sections[:3]
     reachable_ips = []
+    # Paralelize. 
+    iplist = ""
     for i in range(sipln, eipln+1):
         ip_array = subdomain.copy()
         ip_array.append(str(i)) # for each ip last number in range, append i.
-        selected_ip = '.'.join(ip_array)
-        app.logger.info(f"Selected ip: {selected_ip}")
-        
-        # Make a ping to every ip in order to see if the middleware has access to any of the
-        # containers capable of parsing.
-        is_reachable = make_ping(selected_ip)
-        
-        if(is_reachable == True):
-            # if selected ip from range is reachable, then is possible to make a request
-            # to such ip for log parsing.
-            reachable_ips.append(selected_ip)
+        ip = '.'.join(ip_array)
+        iplist += f" {ip}" 
+    
+    response = multi_ping(iplist)
+    app.logger.info(f"Multi_ping for parsers response: {response}")
+    for ip in response:
+        ip_status = response[ip]
+        if(ip_status == 'alive'):
+            reachable_ips.append(ip)            
+
+    #for i in range(sipln, eipln+1):
+    #    ip_array = subdomain.copy()
+    #    ip_array.append(str(i)) # for each ip last number in range, append i.
+    #    selected_ip = '.'.join(ip_array)
+    #    app.logger.info(f"Selected ip: {selected_ip}")
+    #    
+    #    # Make a ping to every ip in order to see if the middleware has access to any of the
+    #    # containers capable of parsing.
+    #    # is_reachable = make_ping(selected_ip)
+    #    # 40001 -> LP PORT
+    #    reachable = is_reachable(selected_ip, port=40001)
+    #    
+    #    if(reachable == True):
+    #        # if selected ip from range is reachable, then is possible to make a request
+    #        # to such ip for log parsing.
+    #        reachable_ips.append(selected_ip)
     
     if(len(reachable_ips) == 0):
         return { "canParse": False, 'reachableIps': [] }
@@ -435,20 +478,41 @@ def can_detect():
     # network
     subdomain = start_sections[:3]
     reachable_ips = []
+    
+    # Paralelize. 
+    iplist = "" 
     for i in range(sipln, eipln+1):
         ip_array = subdomain.copy()
         ip_array.append(str(i)) # for each ip last number in range, append i.
-        selected_ip = '.'.join(ip_array)
-        app.logger.info(f"Selected ip: {selected_ip}")
-        
-        # Make a ping to every ip in order to see if the middleware has access to any of the
-        # containers capable of parsing.
-        is_reachable = make_ping(selected_ip)
-        
-        if(is_reachable == True):
-            # if selected ip from range is reachable, then is possible to make a request
-            # to such ip for log parsing.
-            reachable_ips.append(selected_ip)
+        ip = '.'.join(ip_array)
+        iplist += f" {ip}" 
+    
+    app.logger.info(f"Starting multiping to iplist: {iplist}")
+    response = multi_ping(iplist)
+    app.logger.info(f"Multi_ping for detectors response: {response}")
+    for ip in response:
+        ip_status = response[ip]
+        if(ip_status == 'alive'):
+            reachable_ips.append(ip)            
+    
+    app.logger.info(f"Reachable ips: {reachable_ips}")
+
+    # for i in range(sipln, eipln+1):
+    #     ip_array = subdomain.copy()
+    #     ip_array.append(str(i)) # for each ip last number in range, append i.
+    #     ip = '.'.join(ip_array)
+    #     app.logger.info(f"Selected ip: {ip}")
+    #     
+    #     # Make a ping to every ip in order to see if the middleware has access to any of the
+    #     # containers capable of parsing.
+    #     # is_reachable = make_ping(selected_ip)
+    #     
+    #     reachable = is_reachable(ip, port=50001)
+    #     
+    #     if(reachable == True):
+    #         # if selected ip from range is reachable, then is possible to make a request
+    #         # to such ip for log parsing.
+    #         reachable_ips.append(selected_ip)
     
     if(len(reachable_ips) == 0):
         return { "canDetect": False, 'reachableIps': [] }
@@ -502,11 +566,22 @@ def parse():
     global MY_ROLE
     current_lp_ip = os.getenv("CURRENT_LP_IP")
     if len(current_lp_ip) <= 0:
-        start_paxos("LP")
-        app.logger.info(f"CONSENSUS FINISHED, CURRENT_LP_IP = {os.getenv('CURRENT_LP_IP')}")
+        paxos_response = start_paxos("LP")
+        if(paxos_response['consensus_achieved'] == False):
+            msg = paxos_response['paxos_status']
+            app.logger.error(f"CONSENSUS FAILED, reason: {msg}")
+            return { 'status': False,
+                    'message': "Failed to start parsing, consensus not achieved!" }
+
     elif is_ip_available(current_lp_ip.split(":")[0]) == False:
-        start_paxos("LP")
-        app.logger.info(f"CONSENSUS FINISHED, CURRENT_LP_IP = {os.getenv('CURRENT_LP_IP')}")
+        paxos_response = start_paxos("LP")
+        if(paxos_response['consensus_achieved'] == False):
+            msg = paxos_response['paxos_status']
+            app.logger.error(f"CONSENSUS FAILED, reason: {msg}")
+            return { 'status': False,
+                    'message': "Failed to start parsing, consensus not achieved!" }
+    
+    app.logger.info(f"CONSENSUS FINISHED, CURRENT_LP_IP = {os.getenv('CURRENT_LP_IP')}")
 
     
     # ip = get_ip(LP_IP_RANGE[0], LP_IP_RANGE[1])
@@ -548,6 +623,20 @@ def parse():
     
     return parsing_result
 
+def is_reachable(ip, port):
+    is_reachable = True
+    url = f"http://{ip}:{port}/"
+    try:
+        app.logger.info(f"Requesting / to {ip}:{port}")
+        req = requests.get(url, verify=False, timeout=3)
+        app.logger.info(f"\tRequest response: {req.text}")
+    except Exception as e:
+        app.logger.info(f"Failed request / to {ip}:{port}")
+        app.logger.error(f"Exception: {e}")
+        is_reachable = False
+    
+    return is_reachable 
+
 def is_ip_available(ip):
     return make_ping(ip)
 
@@ -557,12 +646,21 @@ def detect_anomalies():
     global MY_ROLE
     current_ad_ip = os.getenv("CURRENT_AD_IP")
     if len(current_ad_ip) <= 0:
-        start_paxos("AD") # paxos for AD
-        app.logger.info(f"CONSENSUS FINISHED, CURRENT_AD_IP = {os.getenv('CURRENT_AD_IP')}")
+        paxos_response = start_paxos("AD")
+        if(paxos_response['consensus_achieved'] == False):
+            msg = paxos_response['paxos_status']
+            app.logger.error(f"CONSENSUS FAILED, reason: {msg}")
+            return { 'status': False,
+                    'message': "Failed to start anomaly detection due to consensus not achieved!" }
     elif is_ip_available(current_ad_ip.split(":")[0]) == False:
-        start_paxos("AD") # paxos for AD
-        app.logger.info(f"CONSENSUS FINISHED, CURRENT_AD_IP = {os.getenv('CURRENT_AD_IP')}")
+        paxos_response = start_paxos("AD")
+        if(paxos_response['consensus_achieved'] == False):
+            msg = paxos_response['paxos_status']
+            app.logger.error(f"CONSENSUS FAILED, reason: {msg}")
+            return { 'status': False,
+                    'message': "Failed to start anomaly detection due to consensus not achieved!" }
     
+    app.logger.info(f"CONSENSUS FINISHED, CURRENT_AD_IP = {os.getenv('CURRENT_AD_IP')}")
     ip = os.getenv("CURRENT_AD_IP") # middleware in charge of parsing.
     # myip = socket.gethostbyname(socket.gethostname())
     myips = socket.gethostbyname_ex(socket.gethostname())

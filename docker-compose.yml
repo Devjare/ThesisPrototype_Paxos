@@ -1,0 +1,51 @@
+version: '3'
+services:
+  log-parsers:
+    image: mysql
+    container_name: log-parsers
+    volumes:
+      - 'mysql-db-data:/var/lib/mysql'
+      - "./db/scheme_info.sql:/docker-entrypoint-initdb.d/database.sql"
+    restart: always
+    ports:
+      - "33061:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: secret
+      
+  web_service:
+    build: ./endpoint_user/Docker
+    image: web_service_img
+    container_name: web_service
+    volumes:
+      - ./endpoint_user:/var/www/html/
+    depends_on:
+      - mysql-db
+    ports:
+      - "8000:80"
+      - "8001:5000"
+    restart: always
+  
+  endpoint_service:
+    build: ./endpoint_device/Docker
+    image: endpoint_service_img
+    container_name: endpoint_service
+    volumes:
+      - ./endpoint_device:/home/app
+    ports:
+      - "5001:5000"
+    depends_on:
+      - mysql-db
+    #entrypoint: ["app/docker-entrypoint.sh"]
+    entrypoint: ["python3", "app/endpoint_run.py"]
+    restart: always
+  
+volumes:
+  mysql-db-data:
+ 
+networks: 
+  default: 
+    external: 
+      name: wot_net 
+ 
+#correr el listener en segundo plano:
+# nohup python3 listener_run.py &

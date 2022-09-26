@@ -21,6 +21,8 @@ else
 	docker network create $NET_NAME --label "AD_NET=ANOMALY_DETECTION_NETWORK"  --subnet=$SUB_NET --ip-range=$IP_RANGE
 fi
 
+# PREBUILD MIDDLEWARE IMAGE.
+./anomaly_detector/buildimage.sh
 
 export BASE_IMAGE=localhost:5000/djandr/anomaly_detector:latest
 # Launch all containers
@@ -32,7 +34,7 @@ for (( i=1; i<6; i++))
 do
 	export PORT=5000$i
 	echo "Launching container ad$i on port $PORT"
-	docker container run --name ad$i -l AD_CID=AD$i -p $PORT:$DEFAULT_PORT -v $SHARED_VOLUME:$DOCKER_VOLUME_MAP --net $NET_NAME -d -e PAXOS_ROLE=1 $BASE_IMAGE
+	docker container run --name ad$i -l AD_CID=AD$i -p $PORT:$DEFAULT_PORT -v $SHARED_VOLUME:$DOCKER_VOLUME_MAP --net $NET_NAME -d $BASE_IMAGE
 done
 
 echo "Containers launched: "

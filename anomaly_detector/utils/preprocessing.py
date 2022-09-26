@@ -74,6 +74,8 @@ class FeatureExtractor(object):
         -------
             X_new: The transformed data matrix
         """
+        print("==================== SEQ: =======================\n")
+        print(X_seq)
         print('====== Transformed train data summary ======')
         self.term_weighting = term_weighting
         self.normalization = normalization
@@ -85,6 +87,7 @@ class FeatureExtractor(object):
             X_counts.append(event_counts)
         print(f"[X_countd] of {X_counts}")
         X_df = pd.DataFrame(X_counts)
+        print("============================ Dataframe ============================================== \n", X_df)
         X_df = X_df.fillna(0)
         self.events = X_df.columns
         X = X_df.values

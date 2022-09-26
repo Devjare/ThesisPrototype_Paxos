@@ -50,7 +50,7 @@ docker network connect lp_net mw5
 # Start contaienr
 docker container start mw5
 
-echo "Launching ACCEPTOR CONTAINER on PORT 60006"
+echo "Launching ACCEPTOR CONTAINER on PORT 60007"
 docker container create --name mw6 -l MW_CID=MW6 -p 60007:$DEFAULT_PORT --net $NET_NAME --env-file  ./scripts/acceptor.env $BASE_IMAGE
 # After created, connect to second network
 docker network connect ad_net mw6
@@ -58,7 +58,7 @@ docker network connect ad_net mw6
 docker container start mw6
 
 
-echo "Launching ACCEPTOR CONTAINER on PORT 60006"
+echo "Launching ACCEPTOR CONTAINER on PORT 60008"
 docker container create --name mw7 -l MW_CID=MW7 -p 60008:$DEFAULT_PORT --net $NET_NAME --env-file  ./scripts/acceptor.env $BASE_IMAGE
 # After created, connect to second networ
 docker network connect ad_net mw7

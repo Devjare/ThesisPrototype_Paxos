@@ -1,5 +1,0 @@
-Build image from anomaly_detector/ dir:
-	docker image build -t djandr/anomaly_detector:v3 .
-
-Run container for the first time:
-	docker container run --name anomaly_detector -v shared_logs:/data/ djandr/anomaly_detector:v3
