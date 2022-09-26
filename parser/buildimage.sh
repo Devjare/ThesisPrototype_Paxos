@@ -1,1 +1,1 @@
-docker image build -t localhost:5000/djandr/log_parser ./parser
+docker image build -t djandr/drain-parser-api .

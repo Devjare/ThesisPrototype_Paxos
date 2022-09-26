@@ -1,1 +1,1 @@
-docker image build -t localhost:5000/djandr/anomaly_detector ./anomaly_detector
+docker image build -t djandr/pca-ad-api .
