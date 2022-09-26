@@ -1,1 +1,1 @@
-docker image build -t localhost:5000/djandr/middleware ./middleware
+docker image build -t djandr/middleware_ds .
