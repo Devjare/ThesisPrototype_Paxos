@@ -54,5 +54,5 @@ def detect_anomalies():
     
 
 if __name__ == "__main__":
-    # PORT = os.getenv("PORT")
-    app.run(debug=True, host="0.0.0.0", port=1765)
+    PORT = os.getenv("PORT")
+    app.run(debug=True, host="0.0.0.0", port=PORT)

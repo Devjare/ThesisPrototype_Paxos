@@ -77,25 +77,13 @@ def get_acceptors(connected):
 
     return acceptors
 
+class Network(object):
+    def __init__(self):
+        ip = get_myip()
+        self.ip = ip
 
-def scan_network():
-    myip = get_myip()
-    network = myip + "/24"
-
-    app.logger.info("Scanning ports...")
-
-    nm = nmap.PortScanner()
-    nm.scan(hosts=network, arguments="-sn")
-    hosts_list = [(x, nm[x]['status']['state']) for x in nm.all_hosts()]
-
-    connected = []
-
-    for host, status in hosts_list:
-        app.logger.info(f"Host: {host}, status: {status}")
-        if(status == "up"):
-            connected.append(f"{host}:60001")
-
-    return connected
+    def scan_network(self):
+        network = self.ip + "/16"
 
 @app.route("/promise/<task>")
 def promise(task):
@@ -105,14 +93,10 @@ def promise(task):
         app.logger.info('PROPOSER Promise Request')
         # ONLY A PROPOSER HAS AN IP LIST DEFINED AS ENV VARIABLE.
         # FUTURE WORK: IP_LIST NOT DEFINED ON ENV, BUT DISCOVER IPS ON NET.
+
         
-        app.logger.info(" =========== Scanning netowk...")
-        connected = scan_network()  
-        app.logger.info(" =================== CONNECTED IPs ==================")
-        app.logger.info(connected)
-        app.logger.info(" =========== Scanning netowk finished...")
         
-        # connected = os.getenv("IP_LIST").split(",")
+        connected = os.getenv("IP_LIST").split(",")
         app.logger.info(f"Connected ips: {connected}")
         # Get acceptors list.
         acceptors = get_acceptors(connected)
@@ -598,7 +582,6 @@ def get_myip():
             # myip = socket.gethostbyname(socket.gethostname())
             myip = myips[i]
 
-    app.logger.info(f"MY IP IS: {myip}")
     return myip
 
 @app.route("/parse", methods=["POST"])

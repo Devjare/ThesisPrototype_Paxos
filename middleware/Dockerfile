@@ -4,7 +4,7 @@ COPY . /middleware/
 WORKDIR /middleware
 
 RUN apt-get -y update
-# RUN apt-get install -y iputils-ping
+RUN apt-get install -y nmap
 RUN apt-get install -y fping
 # RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
