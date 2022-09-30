@@ -13,6 +13,8 @@ MY_ROLE = os.getenv("PAXOS_ROLE") # 'P' | 'A' | 'L'
 LP_REQ_ID = int(os.getenv("CURRENT_LP_REQ_ID"))
 AD_REQ_ID = int(os.getenv("CURRENT_AD_REQ_ID"))
 
+CONNECTED_IPs = []
+
 @app.route("/")
 def home():
     return "<h5>Middleware Home!</h5>"
@@ -45,15 +47,6 @@ def get_ip(start, end):
     
     return selected_ip
 
-def get_port(start, end):
-    int_start = int(start)
-    int_end = int(end)
-
-    port = random.randint(int_start, int_end)
-
-    print("Selected Port: ", port)
-    return port
-
 @app.route("/my_role")
 def get_role():
     return { 'my_role': os.getenv("PAXOS_ROLE") }
@@ -78,8 +71,15 @@ def get_acceptors(connected):
     return acceptors
 
 
-def scan_network():
-    myip = get_myip()
+def scan_network(ip=None):
+    app.logger.info(" =========== Scanning netowk...")
+    myip = ""
+    if ip != None:
+        myip = ip
+    else:
+        myip = get_myip()
+    
+    soloip = myip
     network = myip + "/24"
 
     app.logger.info("Scanning ports...")
@@ -90,15 +90,25 @@ def scan_network():
 
     connected = []
 
+    app.logger.info(" =================== CONNECTED IPs ==================")
     for host, status in hosts_list:
         app.logger.info(f"Host: {host}, status: {status}")
         if(status == "up"):
+            app.logger.info(f"Host found: {host}, myip: {soloip}")
+            if host == soloip:
+                continue
+            
             connected.append(f"{host}:60001")
+
+    app.logger.info(connected)
+    app.logger.info(" =========== Scanning netowk finished...")
 
     return connected
 
 @app.route("/promise/<task>")
 def promise(task):
+    global CONNECTED_IPs
+    
     # IF IM A PROPOSER, MY INTEREST IS TO SEND PROMISE REQUEST.
     request_id = LP_REQ_ID if task == "LP" else AD_REQ_ID
     if MY_ROLE == "P":
@@ -106,16 +116,12 @@ def promise(task):
         # ONLY A PROPOSER HAS AN IP LIST DEFINED AS ENV VARIABLE.
         # FUTURE WORK: IP_LIST NOT DEFINED ON ENV, BUT DISCOVER IPS ON NET.
         
-        app.logger.info(" =========== Scanning netowk...")
-        connected = scan_network()  
-        app.logger.info(" =================== CONNECTED IPs ==================")
-        app.logger.info(connected)
-        app.logger.info(" =========== Scanning netowk finished...")
+        if(len(CONNECTED_IPs) < 1):
+            CONNECTED_IPs = scan_network()  
         
-        # connected = os.getenv("IP_LIST").split(",")
-        app.logger.info(f"Connected ips: {connected}")
+        app.logger.info(f"Connected ips: {CONNECTED_IPs}")
         # Get acceptors list.
-        acceptors = get_acceptors(connected)
+        acceptors = get_acceptors(CONNECTED_IPs)
 
         # Comma separated ips of acceptors on MW_NET.
         # acceptors = os.getenv("ACCEPTORS").split(",")
@@ -155,13 +161,16 @@ def promise(task):
 
 @app.route("/accept/<task>")
 def accept(task):
+    global CONNECTED_IPs
     request_id = LP_REQ_ID if task == "LP" else AD_REQ_ID
     if MY_ROLE == "P":
         app.logger.info('======================== PROPOSER ACCEPT Request =========================')
-        connected = os.getenv("IP_LIST").split(",")
         
         # Get acceptors list.
-        acceptors = get_acceptors(connected)
+        if(len(CONNECTED_IPs) < 1):
+            CONNECTED_IPs = scan_network()
+
+        acceptors = get_acceptors(CONNECTED_IPs)
         
         majority = len(acceptors) / 2 + 1
         # acceptor -> ip:port
@@ -206,15 +215,20 @@ def accept(task):
 
 @app.route("/commit/<task>")
 def commit(task):
+    global CONNECTED_IPs
     request_id = LP_REQ_ID if task == "LP" else AD_REQ_ID
     newValue = os.getenv(f"{task}_VALUE_TO_COMMIT")
     majority = os.getenv(f"{task}_MAJORITY_ACCEPTED")
     if MY_ROLE == "P":
         app.logger.info('================================= PROPOSER COMMIT Request ========================')
-        connected = os.getenv("IP_LIST").split(",")
+
+        if(len(CONNECTED_IPs) < 1):
+            CONNECTED_IPs = scan_network()
+
         # on commit phase, 
         majorityAchieved = False
-        for c in connected:
+        for c in CONNECTED_IPs:
+            app.logger.info(f"Commiting to {c}")
             # process -> Which process to be done(Parser or AD), 
             # ip -> who is going to do that process.
 
@@ -263,7 +277,7 @@ def commit(task):
 
 @app.route("/start_paxos/<task>")
 def start_paxos(task):
-    global LP_REQ_ID, AD_REQ_ID, MY_ROLE
+    global LP_REQ_ID, AD_REQ_ID, MY_ROLE, CONNECTED_IPs
     # PHASE 1: PROMISE
     # SEARCH WHICH VALUE TO PROPOSE.
     # In order to do that, launch a request to every IP on table for a wether they can
@@ -278,11 +292,13 @@ def start_paxos(task):
     request_id = LP_REQ_ID if task == "LP" else AD_REQ_ID
     activity = "parse" if task == "LP" else "detect"
     if(MY_ROLE == "P"):
-        connected = os.getenv("IP_LIST").split(",")
+        # connected = os.getenv("IP_LIST").split(",")
+        if(len(CONNECTED_IPs) < 1):
+            CONNECTED_IPs = scan_network()
 
          
         can_do_task_list = [] # list of middleware that have access to parsers net.
-        for c in connected:
+        for c in CONNECTED_IPs:
             url = f"http://{c}/can_{activity}"
             c_ip = c.split(":")[0]
             if is_reachable(c_ip, port=60001) == True:
@@ -337,7 +353,10 @@ def start_paxos(task):
                 # Send commit.
                 os.environ[f"{task}_VALUE_TO_COMMIT"] = value
                 os.environ[f"{task}_MAJORITY_ACCEPTED"] = str(acceptResponse['majority'])
+                app.logger.info("============================================= COMMIT START =======================")
+                app.logger.info(f"List of connected ips before commiting: {CONNECTED_IPs}")
                 commit(task)
+                app.logger.info("============================================= COMMIT END =======================")
                 
                 # MAKE PROPOSER KNOWN OF THE CURRENT VALUE.
                 process = value.split("=")[0] # Which process
@@ -375,41 +394,6 @@ def start_paxos(task):
             'consensus_achieved': consensus_achieved }
 
 
-@app.route("/process_logs", methods=["POST"])
-def process_logs():
-    
-    print("Processing logs completely!")
-    ip = os.getenv("IPLOCAL")
-    # PARSER PORT
-    LP_IP_RANGE = os.getenv("LP_IP_RANGE").split("-") # PORT RANGE FRO LOG PARSERS(LP) 
-    parser_port = 40001 # get_port(LP_PORT_RANGE[0], LP_PORT_RANGE[1])
-    parser_url = f"http://{ip}:{parser_port}/parse"
-
-    detector_port = 50001
-    detector_url = f"http://{ip}:{detector_port}/detect_anomalies"
-    
-    print(f"Getting args...")
-    payload = request.json
-    print(f"Payload: {payload}")
-    parser_payload = payload['parserReq']
-    detector_payload = payload['detectorReq']
-
-    headers = {'Content-Type': 'application/json'}
-    
-    print(f"Parsing on URL {parser_url}, and post data: {parser_payload}")
-    parser_req = requests.post(parser_url, data=json.dumps(parser_payload), headers=headers)
-    parser_response = parser_req.json()
-    if(parser_response):
-        print("PArser response: ", parser_response) 
-        print(f"Detecting anomalies on URL {detector_url}, and post data: {detector_payload}")
-        detector_req = requests.post(detector_url, data=json.dumps(detector_payload), headers=headers)
-        detector_response = detector_req.json()
-        if(detector_response):
-            print("Detector response: ", detector_response)
-
-    return "Finished processing logs."
-
-
 def multi_ping(iplist):
     app.logger.info(f"Starting multiping to iplist: {iplist}")
     command = "fping -t500" + iplist
@@ -441,7 +425,9 @@ def can_parse():
     
     reachableIps = []
     LP_IP_RANGE = os.getenv("LP_IP_RANGE").split("-") # IP RANGE FRO LOG PARSERS(LP)
-    
+    network_ip = LP_IP_RANGE[0]
+
+
     start_sections = LP_IP_RANGE[0].split(".") # Start ip
     # sipln = start_ip_last_number
     sipln = int(start_sections[-1]) # Last number
@@ -453,6 +439,9 @@ def can_parse():
     # network
     subdomain = start_sections[:3]
     reachable_ips = []
+
+    app.logger.info(f"Subdomain: {subdomain}")
+    app.logger.info(f"IP LIST Scanned from network: {ipList}")
     # Paralelize. 
     iplist = ""
     for i in range(sipln, eipln+1):
